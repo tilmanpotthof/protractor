@@ -1078,7 +1078,7 @@ export class ElementFinder extends WebdriverWebElement {
       }
       return arr[0].isEnabled().then(() => {
         return true;  // is present, whether it is enabled or not
-      });
+      }, falseIfMissing);
     }, falseIfMissing);
   }
 
