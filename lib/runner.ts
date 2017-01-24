@@ -6,6 +6,7 @@ import * as util from 'util';
 import {ProtractorBrowser} from './browser';
 import {Config} from './config';
 import {buildDriverProvider, DriverProvider} from './driverProviders';
+import {ConfigError} from './exitCodes';
 import {Logger} from './logger';
 import {Plugins} from './plugins';
 import {protractor} from './ptor';
@@ -33,6 +34,8 @@ export class Runner extends EventEmitter {
   driverprovider_: DriverProvider;
   o: any;
   plugins_: Plugins;
+  restartPromise: q.Promise<any>;
+  frameworkUsesAfterEach: boolean;
 
   constructor(config: Config) {
     super();
@@ -77,13 +80,44 @@ export class Runner extends EventEmitter {
   /**
    * Executor of testPreparer
    * @public
+   * @param {string[]=} An optional list of command line arguments the framework will accept.
    * @return {q.Promise} A promise that will resolve when the test preparers
    *     are finished.
    */
-  runTestPreparer(): q.Promise<any> {
+  runTestPreparer(extraFlags?: string[]): q.Promise<any> {
+    let unknownFlags = this.config_.unknownFlags_ || [];
+    if (extraFlags) {
+      unknownFlags = unknownFlags.filter((f) => extraFlags.indexOf(f) === -1);
+    }
+    if (unknownFlags.length > 0 && !this.config_.disableChecks) {
+      throw new ConfigError(
+          logger,
+          'Found extra flags: ' + unknownFlags.join(', ') +
+              ', please use --disableChecks flag to disable the Protractor CLI flag checks. ');
+    }
     return this.plugins_.onPrepare().then(() => {
       return helper.runFilenameOrFn_(this.config_.configDir, this.preparer_);
     });
+  }
+
+  /**
+   * Called after each test finishes.
+   *
+   * Responsible for `restartBrowserBetweenTests`
+   *
+   * @public
+   * @return {q.Promise} A promise that will resolve when the work here is done
+   */
+  afterEach(): q.Promise<void> {
+    let ret: q.Promise<void>;
+    this.frameworkUsesAfterEach = true;
+    if (this.config_.restartBrowserBetweenTests) {
+      // TODO(sjelin): remove the `|| q()` once `restart()` returns a promise
+      this.restartPromise = this.restartPromise || protractor.browser.restart() || q();
+      ret = this.restartPromise;
+      this.restartPromise = undefined;
+    }
+    return ret || q();
   }
 
   /**
@@ -322,8 +356,12 @@ export class Runner extends EventEmitter {
           }
 
           if (this.config_.restartBrowserBetweenTests) {
+            // TODO(sjelin): replace with warnings once `afterEach` support is required
             let restartDriver = () => {
-              browser_.restart();
+              if (!this.frameworkUsesAfterEach) {
+                // TODO(sjelin): remove the `|| q()` once `restart()` returns a promise
+                this.restartPromise = browser_.restart() || q();
+              }
             };
             this.on('testPass', restartDriver);
             this.on('testFail', restartDriver);

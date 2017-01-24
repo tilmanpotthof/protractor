@@ -41,6 +41,7 @@ let allowedNames = [
   'seleniumSessionId',
   'webDriverProxy',
   'useBlockingProxy',
+  'blockingProxyUrl',
   'sauceUser',
   'sauceKey',
   'sauceAgent',
@@ -174,16 +175,10 @@ if (argv.version) {
   process.exit(0);
 }
 
-if (!argv.disableChecks) {
-  // Check to see if additional flags were used.
-  let unknownKeys: string[] = Object.keys(argv).filter((element: string) => {
-    return element !== '$0' && element !== '_' && allowedNames.indexOf(element) === -1;
-  });
-
-  if (unknownKeys.length > 0) {
-    throw new Error('Found extra flags: ' + unknownKeys.join(', '));
-  }
-}
+// Check to see if additional flags were used.
+argv.unknownFlags_ = Object.keys(argv).filter((element: string) => {
+  return element !== '$0' && element !== '_' && allowedNames.indexOf(element) === -1;
+});
 
 /**
  * Helper to resolve comma separated lists of file pattern strings relative to

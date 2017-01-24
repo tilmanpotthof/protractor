@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as q from 'q';
 
 import {Config} from '../config';
-import {BrowserError} from '../exitCodes';
+import {BrowserError, ConfigError} from '../exitCodes';
 import {Logger} from '../logger';
 
 import {DriverProvider} from './driverProvider';
@@ -95,8 +95,6 @@ export class Local extends DriverProvider {
    *     ready to test.
    */
   setupDriverEnv(): q.Promise<any> {
-    let deferred = q.defer();
-
     this.addDefaultBinaryLocs_();
     logger.info('Starting selenium standalone server...');
 
@@ -109,6 +107,10 @@ export class Local extends DriverProvider {
     }
     if (serverConf.jvmArgs === undefined) {
       serverConf.jvmArgs = this.config_.jvmArgs || [];
+    } else {
+      if (!Array.isArray(serverConf.jvmArgs)) {
+        throw new ConfigError(logger, 'jvmArgs should be an array.');
+      }
     }
     if (serverConf.port === undefined) {
       serverConf.port = this.config_.seleniumPort;
@@ -121,14 +123,20 @@ export class Local extends DriverProvider {
 
     this.server_ = new remote.SeleniumServer(this.config_.seleniumServerJar, serverConf);
 
+    let deferred = q.defer();
     // start local server, grab hosted address, and resolve promise
-    this.server_.start(this.config_.seleniumServerStartTimeout).then((url: string) => {
-      logger.info('Selenium standalone server started at ' + url);
-      this.server_.address().then((address: string) => {
-        this.config_.seleniumAddress = address;
-        deferred.resolve();
-      });
-    });
+    this.server_.start(this.config_.seleniumServerStartTimeout)
+        .then((url: string) => {
+          logger.info('Selenium standalone server started at ' + url);
+          return this.server_.address();
+        })
+        .then((address: string) => {
+          this.config_.seleniumAddress = address;
+          deferred.resolve();
+        })
+        .catch((err: string) => {
+          deferred.reject(err);
+        });
 
     return deferred.promise;
   }
@@ -143,13 +151,9 @@ export class Local extends DriverProvider {
    *     is down.
    */
   teardownEnv(): q.Promise<any> {
-    let deferred = q.defer();
-    super.teardownEnv().then(() => {
+    return super.teardownEnv().then(() => {
       logger.info('Shutting down selenium standalone server.');
-      this.server_.stop().then(() => {
-        deferred.resolve();
-      });
+      return this.server_.stop();
     });
-    return deferred.promise;
   }
 }
